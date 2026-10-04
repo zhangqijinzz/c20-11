@@ -4,6 +4,7 @@ import { BrowserStorageService, isWorkspaceDocument, type StorageService } from 
 export interface WorkspaceRepository {
   load(): Promise<WorkspaceDocument | null>
   save(document: WorkspaceDocument): Promise<void>
+  saveSync?(document: WorkspaceDocument): void
 }
 
 export class LocalWorkspaceRepository implements WorkspaceRepository {
@@ -22,6 +23,10 @@ export class LocalWorkspaceRepository implements WorkspaceRepository {
 
   async save(document: WorkspaceDocument): Promise<void> {
     await this.storage.write(JSON.stringify(document))
+  }
+
+  saveSync(document: WorkspaceDocument): void {
+    this.storage.writeSync?.(JSON.stringify(document))
   }
 }
 

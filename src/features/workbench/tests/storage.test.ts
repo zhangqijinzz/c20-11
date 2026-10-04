@@ -20,4 +20,17 @@ describe('local workspace repository', () => {
     const repository = new LocalWorkspaceRepository(memoryStorage('{broken'))
     await expect(repository.load()).resolves.toBeNull()
   })
+
+  it('passes synchronous saves through to storage when supported', async () => {
+    let synced: string | null = null
+    const storage: StorageService = {
+      read: async () => null,
+      write: async () => {},
+      writeSync: (next) => { synced = next },
+    }
+    const repository = new LocalWorkspaceRepository(storage)
+    const document = createInitialDocument()
+    repository.saveSync(document)
+    expect(synced).toBe(JSON.stringify(document))
+  })
 })

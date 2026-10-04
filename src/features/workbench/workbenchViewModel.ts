@@ -15,6 +15,7 @@ import { moveCanvasItem, rotateCanvasItem } from '../canvas/canvasViewModel'
 import { createMaterialDraft } from '../materials/materialsViewModel'
 import { inspectPlan } from '../inspection/inspectionViewModel'
 import { LocalWorkspaceRepository, type WorkspaceRepository } from './workspaceRepository'
+import { SaveScheduler, type SaveState } from './saveScheduler'
 
 export interface WorkspaceViewModel {
   status: WorkspaceStatus
@@ -51,6 +52,22 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [feedback, setFeedback] = useState('正在准备你的工作台…')
 
+  const schedulerRef = useRef<SaveScheduler | null>(null)
+  if (!schedulerRef.current) {
+    schedulerRef.current = new SaveScheduler({
+      save: (next) => repositoryRef.current.save(next),
+      saveSync: (next) => repositoryRef.current.saveSync?.(next),
+      onStateChange: (state: SaveState) => {
+        if (state === 'error') {
+          setStatus('error')
+          setFeedback('自动保存失败，请检查浏览器本地存储权限')
+        } else {
+          setStatus(state === 'saving' ? 'saving' : 'ready')
+        }
+      },
+    })
+  }
+
   useEffect(() => {
     let active = true
     void repositoryRef.current.load().then((loaded) => {
@@ -68,6 +85,25 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     return () => { active = false }
   }, [])
 
+  // Pending edits must land before the page hides or unloads
+  useEffect(() => {
+    const scheduler = schedulerRef.current
+    if (!scheduler) return
+    const flush = () => scheduler.flushNow()
+    const handleVisibilityChange = () => {
+      if (window.document.visibilityState === 'hidden') scheduler.flushNow()
+    }
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    window.document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+      window.document.removeEventListener('visibilitychange', handleVisibilityChange)
+      scheduler.dispose()
+    }
+  }, [])
+
   const activePlan = useMemo(
     () => document?.plans.find((plan) => plan.id === document.activePlanId) ?? null,
     [document],
@@ -76,17 +112,10 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const inspection = useMemo(() => activePlan ? inspectPlan(activePlan) : emptyInspection, [activePlan])
   const { analysis, issueIds, issueCount } = inspection
 
-  const persist = useCallback(async (nextDocument: WorkspaceDocument, message: string) => {
+  const persist = useCallback((nextDocument: WorkspaceDocument, message: string) => {
     setDocument(nextDocument)
-    setStatus('saving')
     setFeedback(message)
-    try {
-      await repositoryRef.current.save(nextDocument)
-      setStatus('ready')
-    } catch {
-      setStatus('error')
-      setFeedback('自动保存失败，请检查浏览器本地存储权限')
-    }
+    schedulerRef.current?.schedule(nextDocument)
   }, [])
 
   const updateActivePlan = useCallback((updater: (plan: WorkspacePlan) => WorkspacePlan, message: string) => {
