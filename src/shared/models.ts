@@ -25,6 +25,8 @@ export interface WorkspaceDocument {
   version: 1
   plans: WorkspacePlan[]
   activePlanId: string
+  updatedAt?: string
+  revision?: number
 }
 
 export interface ItemBounds {
